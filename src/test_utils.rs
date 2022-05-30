@@ -83,6 +83,42 @@ impl TestContextManager {
             })
             .expect("The events channel should be unbounded and not closed, so try_send() shouldn't fail");
     }
+
+    /// - Let one TestContext send a message
+    /// - Let the other TestContext receive it and accept the chat
+    /// - Assert that the message arrived
+    pub async fn send_recv_accept(&self, from: &TestContext, to: &TestContext, msg: &str) {
+        self.sec(&format!(
+            "{} sends a message '{}' to {}",
+            from.name(),
+            msg,
+            to.name()
+        ));
+
+        let chat = from.create_chat(to).await;
+        let sent = from.send_text(chat.id, msg).await;
+
+        let received_msg = to.recv_msg(&sent).await;
+        received_msg.chat_id.accept(to).await.unwrap();
+        assert_eq!(received_msg.text.as_deref().unwrap(), msg);
+    }
+
+    pub async fn change_addr(&self, test_context: &TestContext, new_addr: &str) {
+        self.sec(&format!(
+            "{} changes her self address and reconfigures",
+            test_context.name()
+        ));
+        test_context.set_primary_self_addr(new_addr).await.unwrap();
+        // ensure_secret_key_exists() is called during configure
+        crate::e2ee::ensure_secret_key_exists(test_context)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            test_context.get_primary_self_addr().await.unwrap(),
+            "alice@someotherdomain.xyz"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -276,6 +312,15 @@ impl TestContext {
             .or_insert_with(|| name.into());
     }
 
+    /// Returns the name of this [`TestContext`].
+    ///
+    /// This is the same name that is shown in events logged in the test output.
+    pub fn name(&self) -> String {
+        let context_names = CONTEXT_NAMES.read().unwrap();
+        let id = &self.ctx.id;
+        context_names.get(id).unwrap_or(&id.to_string()).to_string()
+    }
+
     /// Adds a new [`Event`]s sender.
     ///
     /// Once added, all events emitted by this context will be sent to this channel.  This
@@ -371,7 +416,10 @@ impl TestContext {
     /// Receive a message using the `dc_receive_imf()` pipeline. Panics if it's not shown
     /// in the chat as exactly one message.
     pub async fn recv_msg(&self, msg: &SentMessage) -> Message {
-        let received = self.recv_msg_opt(msg).await.unwrap();
+        let received = self
+            .recv_msg_opt(msg)
+            .await
+            .expect("dc_receive_imf() seems not to have added a new message to the db");
 
         assert_eq!(
             received.msg_ids.len(),
@@ -519,8 +567,13 @@ impl TestContext {
     /// the message.
     pub async fn send_msg(&self, chat_id: ChatId, msg: &mut Message) -> SentMessage {
         chat::prepare_msg(self, chat_id, msg).await.unwrap();
-        chat::send_msg(self, chat_id, msg).await.unwrap();
-        self.pop_sent_msg().await
+        let msg_id = chat::send_msg(self, chat_id, msg).await.unwrap();
+        let res = self.pop_sent_msg().await;
+        assert_eq!(
+            res.sender_msg_id, msg_id,
+            "Apparently the message was not actually sent out"
+        );
+        res
     }
 
     /// Prints out the entire chat to stdout.
@@ -777,7 +830,6 @@ impl EventTracker {
 /// Gets a specific message from a chat and asserts that the chat has a specific length.
 ///
 /// Panics if the length of the chat is not `asserted_msgs_count` or if the chat item at `index` is not a Message.
-#[allow(clippy::indexing_slicing)]
 pub(crate) async fn get_chat_msg(
     t: &TestContext,
     chat_id: ChatId,
