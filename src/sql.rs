@@ -641,6 +641,17 @@ pub async fn housekeeping(context: &Context) -> Result<()> {
         warn!(context, "Can't set config: {}", e);
     }
 
+    if let Err(err) = context
+        .sql
+        .execute(
+            "DELETE FROM msgs_mdns WHERE msg_id NOT IN (SELECT id FROM msgs)",
+            paramsv![],
+        )
+        .await
+    {
+        warn!(context, "Failed to remove old MDNs: {}", err);
+    }
+
     info!(context, "Housekeeping done.");
     Ok(())
 }

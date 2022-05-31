@@ -4,6 +4,7 @@
 
 ### Changes
 - refactorings #3373 #3345
+- remove `msgs_mdns` references to deleted messages during housekeeping #3387
 
 ### Fixes
 - delete outgoing MDNs found in the Sent folder on Gmail #3372
