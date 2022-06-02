@@ -88,6 +88,7 @@ impl TestContextManager {
     /// - Let the other TestContext receive it and accept the chat
     /// - Assert that the message arrived
     pub async fn send_recv_accept(&self, from: &TestContext, to: &TestContext, msg: &str) {
+        // TODO in the python tests, we only have these sec comments in the test itself - do we want them here?
         self.sec(&format!(
             "{} sends a message '{}' to {}",
             from.name(),
