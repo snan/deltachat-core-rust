@@ -72,6 +72,14 @@ impl TestContextManager {
             .await
     }
 
+    pub async fn fiona(&mut self) -> TestContext {
+        TestContext::builder()
+            .configure_fiona()
+            .with_log_sink(self.log_tx.clone())
+            .build()
+            .await
+    }
+
     /// Writes info events to the log that mark a section, e.g.:
     ///
     /// ========== `msg` goes here ==========
@@ -117,7 +125,7 @@ impl TestContextManager {
 
         assert_eq!(
             test_context.get_primary_self_addr().await.unwrap(),
-            "alice@someotherdomain.xyz"
+            new_addr
         );
     }
 }
@@ -669,6 +677,20 @@ impl Deref for TestContext {
     }
 }
 
+impl Drop for TestContext {
+    fn drop(&mut self) {
+        async_std::task::block_on(async move {
+            println!("\n========== Chats of {}: ==========", self.name());
+            if let Ok(chats) = Chatlist::try_load(&self, 0, None, None).await {
+                for (chat, _) in chats.iter() {
+                    self.print_chat(*chat).await;
+                }
+            }
+            println!();
+        });
+    }
+}
+
 /// A receiver of [`Event`]s which will log the events to the captured test stdout.
 ///
 /// Tests redirect the stdout of the test thread and capture this, showing the captured
@@ -919,9 +941,13 @@ fn print_event(event: &Event) {
 ///
 /// This includes a bunch of the message meta-data as well.
 async fn log_msg(context: &Context, prefix: impl AsRef<str>, msg: &Message) {
-    let contact = Contact::get_by_id(context, msg.get_from_id())
-        .await
-        .expect("invalid contact");
+    let contact = match Contact::get_by_id(context, msg.get_from_id()).await {
+        Ok(contact) => contact,
+        Err(e) => {
+            println!("Can't log message: invalid contact: {}", e);
+            return;
+        }
+    };
 
     let contact_name = contact.get_name();
     let contact_id = contact.get_id();
