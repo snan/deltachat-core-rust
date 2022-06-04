@@ -6,6 +6,7 @@
 - refactorings #3375
 - clean up series of webxdc info messages;
   `DC_EVENT_MSGS_CHANGED` is emitted on changes of existing info messages #3395
+- limit the rate of MDN sending #3402
 
 ## Fixes
 - do not reset our database if imported backup cannot be decrypted #3397
